@@ -38,6 +38,7 @@
                     <h1 class="text-sm font-bold text-blue-400 uppercase tracking-widest">⏱️ TOTAL CPR</h1>
                     <div class="flex gap-2 items-center">
                         <input type="text" id="opNumber" placeholder="Op Number" class="w-24 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs outline-none focus:border-blue-500 text-white font-bold">
+                        <button id="exitFsBtn" onclick="exitFullScreen(event)" class="hidden bg-slate-700 hover:bg-slate-600 py-1 px-3 rounded font-bold text-xs shadow-md transition-all border border-slate-500">↙️ ออกจากเต็มจอ</button>
                         <button onclick="showSummaryModal()" class="bg-indigo-600 hover:bg-indigo-500 py-1 px-3 rounded font-bold text-xs shadow-md transition-all">📋 สรุป</button>
                     </div>
                 </div>
@@ -209,6 +210,53 @@
     </div>
 
     <script>
+        // --- ระบบ Fullscreen แบบแตะตรงไหนก็ทำงาน (Touch anywhere) ---
+        function enterFullScreen() {
+            let elem = document.documentElement;
+            if (elem.requestFullscreen) {
+                elem.requestFullscreen().catch(err => console.log(err));
+            } else if (elem.webkitRequestFullscreen) { /* Safari / iPad */
+                elem.webkitRequestFullscreen();
+            } else if (elem.msRequestFullscreen) { /* IE11 */
+                elem.msRequestFullscreen();
+            }
+        }
+
+        document.body.addEventListener('click', function(e) {
+            // ถ้าเป้าหมายที่กดคือปุ่ม "ออกจากเต็มจอ" ให้ข้ามไป ไม่ต้องเข้าเต็มจออีก
+            if (e.target.closest('#exitFsBtn')) return;
+            
+            // เช็คว่าปัจจุบันยังไม่อยู่ในโหมดเต็มจอ
+            if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                enterFullScreen();
+            }
+        });
+
+        function exitFullScreen(e) {
+            if (e) e.stopPropagation();
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) { /* Safari / iPad */
+                document.webkitExitFullscreen();
+            } else if (document.msExitFullscreen) { /* IE11 */
+                document.msExitFullscreen();
+            }
+        }
+
+        // ซ่อน/โชว์ปุ่ม ออกจากเต็มจอ ตามสถานะ
+        function toggleFsBtn() {
+            const exitBtn = document.getElementById('exitFsBtn');
+            if (document.fullscreenElement || document.webkitFullscreenElement) {
+                exitBtn.classList.remove('hidden');
+            } else {
+                exitBtn.classList.add('hidden');
+            }
+        }
+        document.addEventListener('fullscreenchange', toggleFsBtn);
+        document.addEventListener('webkitfullscreenchange', toggleFsBtn);
+        
+        // --- ---------------------------------------------------- ---
+
         const bpm = 110; const secondsPerBeat = 60.0 / bpm;
         let startTime, timerInterval, audioCtx, nextNoteTime, metronomeTimeout, cycleInterval, autoCloseTimeout; 
         let elapsedTime = 0, cycleTime = 120, currentCycle = 0, defibCount = 0, isRunning = false;
@@ -263,12 +311,7 @@
         }
 
         // Modals
-        function showAlert(msg, autoClose = false) { 
-            clearTimeout(autoCloseTimeout); 
-            document.getElementById('customAlertMessage').innerText = msg; 
-            document.getElementById('customAlertModal').classList.add('modal-active'); 
-            if(autoClose) { autoCloseTimeout = setTimeout(() => closeCustomAlert(), 3000); } 
-        }
+        function showAlert(msg, autoClose = false) { clearTimeout(autoCloseTimeout); document.getElementById('customAlertMessage').innerText = msg; document.getElementById('customAlertModal').classList.add('modal-active'); if(autoClose) { autoCloseTimeout = setTimeout(() => closeCustomAlert(), 3000); } }
         function closeCustomAlert() { document.getElementById('customAlertModal').classList.remove('modal-active'); clearTimeout(autoCloseTimeout); }
         function showConfirm(msg, icon, callback) { document.getElementById('customConfirmIcon').innerText = icon; document.getElementById('customConfirmMessage').innerText = msg; confirmCallback = callback; document.getElementById('customConfirmModal').classList.add('modal-active'); }
         function closeCustomConfirm() { document.getElementById('customConfirmModal').classList.remove('modal-active'); confirmCallback = null; }
@@ -289,25 +332,15 @@
 
         // Timers
         function startCPR() { 
-            if (isRunning) return; 
-            initAudio(); if (audioCtx.state === 'suspended') audioCtx.resume(); 
-            isRunning = true; 
+            if (isRunning) return; initAudio(); if (audioCtx.state === 'suspended') audioCtx.resume(); isRunning = true; 
             if(!startTime) startTime = Date.now() - elapsedTime;
             timerInterval = setInterval(() => { 
-                elapsedTime = Date.now() - startTime; 
-                document.getElementById("display").innerText = timeToString(elapsedTime); 
-                saveState();
-                
-                // --- Adrenaline ไม่ Auto-Close ---
+                elapsedTime = Date.now() - startTime; document.getElementById("display").innerText = timeToString(elapsedTime); saveState();
                 if (adrenalineFrequency !== null && nextAdrenalineTime !== null && elapsedTime >= nextAdrenalineTime) { 
-                    nextAdrenalineTime = null; 
-                    showAlert(`⏰ ครบกำหนด ${adrenalineFrequency} นาที!\nถึงเวลาพิจารณาให้ยา Adrenaline`, false); 
+                    nextAdrenalineTime = null; showAlert(`⏰ ครบกำหนด ${adrenalineFrequency} นาที!\nถึงเวลาพิจารณาให้ยา Adrenaline`, false); 
                 } 
             }, 1000); 
-            if(cycleTime > 0) startCycleTimer(); 
-            nextNoteTime = audioCtx.currentTime; 
-            scheduler(); 
-            saveState();
+            if(cycleTime > 0) startCycleTimer(); nextNoteTime = audioCtx.currentTime; scheduler(); saveState();
         }
         function startCycleTimer() { clearInterval(cycleInterval); cycleInterval = setInterval(() => { if (cycleTime > 0) { cycleTime--; updateCycleDisplay(); } else { clearInterval(cycleInterval); enableAssessment(); } }, 1000); }
         function stopCPR() { isRunning = false; clearInterval(timerInterval); clearInterval(cycleInterval); clearTimeout(metronomeTimeout); saveState(); }
@@ -331,7 +364,6 @@
 
         // Intervention
         function recordDefib() { if (elapsedTime === 0) return showAlert("เริ่มเวลารวมก่อน"); const joules = document.getElementById("defibJoules").value; if (!joules) return showAlert("ระบุพลังงาน"); defibCount++; document.getElementById("defibCounter").innerText = defibCount; interventionLogs.unshift({ id: Date.now(), name: `Defib ${joules} J.`, time: new Date().toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit', second:'2-digit'}), color: 'text-rose-400' }); renderLogs(); document.getElementById("defibJoules").value = ""; saveState(); }
-        
         function toggleAirwayDetail() { 
             const s = document.getElementById('airwayDetail'); const mark = document.getElementById('airwayMark');
             const ett = document.getElementById('checkETT'); const lma = document.getElementById('checkLMA');
@@ -340,7 +372,6 @@
                 (ett && ett.checked) ? mark.classList.remove('hidden') : mark.classList.add('hidden');
             } else { s.classList.add('hidden'); }
         }
-        
         function recordAirway() { 
             if (elapsedTime === 0) return showAlert("เริ่มเวลารวมก่อน"); 
             const selected = Array.from(document.querySelectorAll('input[name="airway"]:checked')).map(cb => cb.value); 
@@ -351,7 +382,6 @@
             interventionLogs.unshift({ id: Date.now(), name: details, time: new Date().toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit', second:'2-digit'}), color: 'text-emerald-400' }); 
             renderLogs(); document.querySelectorAll('input[name="airway"]').forEach(cb => cb.checked = false); toggleAirwayDetail(); saveState(); 
         }
-        
         function recordFluid() { if (elapsedTime === 0) return showAlert("เริ่มเวลารวมก่อน"); const fluid = document.getElementById('fluidType').value; if (!fluid) return showAlert("เลือกชนิดสารน้ำ"); interventionLogs.unshift({ id: Date.now(), name: `IV Fluid ${fluid}`, time: new Date().toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit', second:'2-digit'}), color: 'text-cyan-400' }); renderLogs(); document.getElementById('fluidType').selectedIndex = 0; saveState(); }
         function recordIntervention(name, colorClass) { if (elapsedTime === 0) return showAlert("กรุณาเริ่มเวลารวมก่อนบันทึก", true); interventionLogs.unshift({ id: Date.now(), name: name, time: new Date().toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit', second:'2-digit'}), color: colorClass }); renderLogs(); saveState(); }
 
@@ -364,7 +394,6 @@
             renderLogs(); saveState(); showSummaryModal();
         }
 
-        // --- เพิ่มการสรุปเวลายาอื่นๆ ---
         function generateReportText() {
             let text = "🚨 สรุปเคสกู้ชีพ (CPR Report)\n";
             text += "Op Number: " + (document.getElementById('opNumber').value || "-") + "\n";
@@ -378,12 +407,11 @@
             text += "🔄 จำนวนรอบ (Cycle): " + currentCycle + "\n";
             text += "⚡ จำนวนช็อกไฟฟ้า: " + defibCount + " ครั้ง\n\n";
 
-            // สรุปประวัติยาทุกชนิดที่จ่ายไป
             let drugGroups = {};
             drugLogs.forEach(d => {
                 if(!drugGroups[d.name]) drugGroups[d.name] = { vol: 0, unit: d.unit, times: [] };
                 drugGroups[d.name].vol += parseFloat(d.vol) || 0;
-                drugGroups[d.name].times.push(d.time); // เก็บเวลาไว้
+                drugGroups[d.name].times.push(d.time);
             });
             
             text += "💊 สรุปการให้ยา:\n";
@@ -391,10 +419,8 @@
             if(drugKeys.length > 0) {
                 drugKeys.forEach(k => {
                     if (k === 'Adrenaline') {
-                        // ถ้าเป็น Adrenaline สรุปแค่ครั้งที่ให้ เพื่อความกระชับ
                         text += ` - Adrenaline: ให้ทั้งหมด ${drugGroups[k].times.length} ครั้ง\n`;
                     } else {
-                        // ยาอื่นๆ ให้บอกยอดรวม และแนบเวลาทุกครั้งในวงเล็บ
                         text += ` - ${k}: รวม ${drugGroups[k].vol} ${drugGroups[k].unit} (เวลา: ${drugGroups[k].times.join(', ')})\n`;
                     }
                 });
@@ -416,7 +442,7 @@
             drugLogs.forEach(l => allLogs.push({ id: l.id, text: `- ${l.name} ${l.vol} ${l.unit} - ${l.time}` }));
             interventionLogs.forEach(l => allLogs.push({ id: l.id, text: `- ${l.name} - ${l.time}` }));
             
-            allLogs.sort((a, b) => a.id - b.id); // เรียงตามเวลาเก่าไปใหม่
+            allLogs.sort((a, b) => a.id - b.id);
             if(allLogs.length === 0) text += "- ไม่มีการบันทึกหัตถการ\n";
             allLogs.forEach(l => { text += l.text + "\n"; });
 
